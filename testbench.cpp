@@ -12,7 +12,7 @@
 #include "buf.h"
 
 int main(void){
-    char saisie_de_user[256];
+    char saisie_de_user[300];
     char lecture_fichier[256];
     char input=0x00,lecture=0;
     int i=0,nb_char=0;
@@ -27,7 +27,7 @@ int main(void){
         std::cin>>input;
         switch (input) {
             case '1' :
-                std::cout<<"Veuillez entrer une chaine de characteres suivit de [ENTER]";
+                std::cout<<"Veuillez entrer une chaine de characteres sans espaces suivit de [ENTER]\n";
                 std::cin>>saisie_de_user;
                 fp=open("/dev/Buf_node",O_WRONLY);
                 if (fp < 0) {
@@ -38,6 +38,7 @@ int main(void){
                     while(saisie_de_user[i]!='\0'){
                         i++;
                     }
+                    i++;
                     std::cout<<"Number of character is : "<<i<<'\n';
                     write(fp,(char*) saisie_de_user,i);
 

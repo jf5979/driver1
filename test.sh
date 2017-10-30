@@ -28,8 +28,6 @@ case $choix in
     make
     sudo insmod ./buf.ko
     sudo chmod 666 /dev/Buf_node
-
-    exit
   ;;
   4) echo " Desinstallation du pilote"
         sudo rmmod ./buf.ko

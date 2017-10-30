@@ -81,12 +81,9 @@ int BufIn (struct BufStruct *Buf, unsigned short *Data) {
     }
     Buf->BufEmpty = 0;
     Buf->Buffer[Buf->InIdx] = *Data;
-    printk(KERN_ALERT"Je suis dans la fonction BufIN (%s:%u)\n", __FUNCTION__, __LINE__);
     Buf->InIdx = (Buf->InIdx + 1) % Buf->BufSize;
-    printk(KERN_ALERT"Je suis dans la fonction BufIN (%s:%u)\n", __FUNCTION__, __LINE__);
     if (Buf->InIdx == Buf->OutIdx)
         Buf->BufFull = 1;
-    printk(KERN_ALERT"Je vais sortir de la fonction BufIN (%s:%u)\n", __FUNCTION__, __LINE__);
     return 0;
 }
 
@@ -144,6 +141,7 @@ int BufOut (struct BufStruct *Buf, unsigned short *Data) {
         Le_buffer.InIdx=0;
         Le_buffer.OutIdx=0;
         sema_init(&(Buffer_Tool.SemBuf),0);
+        up(&(Buffer_Tool.SemBuf));
         if(Buffer_Tool.ReadBuf==NULL || Buffer_Tool.ReadBuf==NULL || Le_buffer.Buffer==NULL){
             printk(KERN_ALERT "Couldn't initialise read/write buffer (%s:%s:%u)\n", __FILE__, __FUNCTION__, __LINE__);
             return -ENOTTY;
@@ -258,8 +256,10 @@ int Buf_release(struct inode *inode, struct file *filp) {
 }
 
 static ssize_t Buf_read(struct file *flip, char __user *ubuf, size_t count, loff_t *f_ops){
-        size_t i=0;
-        printk(KERN_ALERT"La valeur de count est : %zu (%s:%u)\n",count, __FUNCTION__, __LINE__);
+
+        int i=0, j=0,empty=0,nb=0;
+        nb=(int) count;
+        printk(KERN_ALERT"La valeur de nb est : %d (%s:%u)\n",nb, __FUNCTION__, __LINE__);
         if((flip->f_flags)& O_NONBLOCK){
 
             if(down_trylock(&(Buffer_Tool.SemBuf))!=0){
@@ -268,39 +268,55 @@ static ssize_t Buf_read(struct file *flip, char __user *ubuf, size_t count, loff
             }
             else{
                 printk(KERN_ALERT"Semaphore disponible  (%s:%u)\n", __FUNCTION__, __LINE__);
-                while(i<count){
-                    if(BufOut(&Le_buffer,&(Buffer_Tool.ReadBuf[i]))!=0){
-                        printk(KERN_ALERT"Couldn't pop all requested data from driver (successuful %zu) (%s:%u)\n",i, __FUNCTION__, __LINE__);
-                        return 0;
+                while(i<nb){
+                    if(BufOut(&Le_buffer,&(Buffer_Tool.ReadBuf[j]))!=0){
+                        printk(KERN_ALERT"Couldn't pop all requested data from driver (successuful %d) (%s:%u)\n",i, __FUNCTION__, __LINE__);
+                        empty=1;
                     }
 
+                    if(empty==1){
+                        copy_to_user((ubuf+(i%READWRITE_BUFSIZE)), (char*)Buffer_Tool.ReadBuf, j);
+                    }
+                    j++;
                     i++;
+                    if((j%READWRITE_BUFSIZE)==0){
+                        copy_to_user((ubuf+(i%READWRITE_BUFSIZE)), (char*)Buffer_Tool.ReadBuf, READWRITE_BUFSIZE);
+                        j=0;
+                    }
+
                 }
                 up(&(Buffer_Tool.SemBuf));
-                ubuf=(char *)Buffer_Tool.ReadBuf;
             }
         }
         else{
             down_interruptible(&(Buffer_Tool.SemBuf));
-            while(i<count){
-                if(BufOut(&Le_buffer,&(Buffer_Tool.ReadBuf[i]))!=0){
-                    printk(KERN_ALERT"Couldn't pop all requested data from driver (successuful %zu) (%s:%u)\n",i, __FUNCTION__, __LINE__);
-                    return 0;
+            while(i<nb){
+                if(BufOut(&Le_buffer,&(Buffer_Tool.ReadBuf[j]))!=0){
+                    printk(KERN_ALERT"Couldn't pop all requested data from driver (successuful %d) (%s:%u)\n",i, __FUNCTION__, __LINE__);
+                    empty=1;
                 }
+
+                if(empty==1){
+                    copy_to_user((ubuf+(i%READWRITE_BUFSIZE)), (char*)Buffer_Tool.ReadBuf, j);
+                }
+                j++;
                 i++;
+                if((j%READWRITE_BUFSIZE)==0){
+                    copy_to_user((ubuf+(i%READWRITE_BUFSIZE)), (char*)Buffer_Tool.ReadBuf, READWRITE_BUFSIZE);
+                    j=0;
+                }
             }
             up(&(Buffer_Tool.SemBuf));
-            copy_to_user(ubuf, (char*)Buffer_Tool.ReadBuf, count);
 
         }
-
-
     return 1;
 }
 static ssize_t Buf_write (struct file *flip, const char __user *ubuf, size_t count,
         loff_t *f_ops){
         size_t i=0;
-        printk(KERN_ALERT"La valeur de count est : %zu (%s:%u)\n",count, __FUNCTION__, __LINE__);
+        int page_write=0,done=0,nb=0;
+        nb= (int) count;
+        printk(KERN_ALERT"La valeur de count est : %zu %d (%s:%u)\n",count, nb, __FUNCTION__, __LINE__);
         if((flip->f_flags)& O_NONBLOCK){
             if(down_trylock(&(Buffer_Tool.SemBuf))!=0){
                 printk(KERN_ALERT"Semaphore indisponible  (%s:%u)\n", __FUNCTION__, __LINE__);
@@ -308,20 +324,30 @@ static ssize_t Buf_write (struct file *flip, const char __user *ubuf, size_t cou
             }
             else{
                 printk(KERN_ALERT"Semaphore disponible  (%s:%u)\n", __FUNCTION__, __LINE__);
-                copy_from_user(Buffer_Tool.WriteBuf,ubuf,count);
-                printk(KERN_ALERT"Les datas ont ete copier dans le buffer temporaire (%s:%u)\n", __FUNCTION__, __LINE__);
-                while(i<count){
-                    if(BufIn(&Le_buffer,&(Buffer_Tool.WriteBuf[i]))!=0){
-                        printk(KERN_ALERT"Couldn't push all requested data from driver (successuful %zu) (%s:%u)\n",i, __FUNCTION__, __LINE__);
-                        break;
+                do{
+                    if(nb<READWRITE_BUFSIZE){
+                        copy_from_user(Buffer_Tool.WriteBuf,ubuf,nb);
+                        done=1;
+                        printk(KERN_ALERT"Done preparing exit (%s:%u)\n", __FUNCTION__, __LINE__);
                     }
-                    printk(KERN_ALERT"dans la boucle du non_bloquant : %zu",i);
-                    i++;
-                    if(i>17){
-                        printk(KERN_ALERT"Fuck up dans la boucle : %zu",i);
-                        break;
+                    else{
+                        copy_from_user(Buffer_Tool.WriteBuf,(ubuf+page_write),READWRITE_BUFSIZE);
+                        nb=nb-READWRITE_BUFSIZE;
+                        page_write=page_write+READWRITE_BUFSIZE;
+                        printk(KERN_ALERT"Value of nb %d (%s:%u)\n", nb, __FUNCTION__, __LINE__);
                     }
-                }
+
+                    i=0;
+                    while(i<nb && i < READWRITE_BUFSIZE){
+                        if(BufIn(&Le_buffer,&(Buffer_Tool.WriteBuf[i]))!=0){
+                            printk(KERN_ALERT"Couldn't push all requested data in buffer (successuful %zu) (%s:%u)\n",i, __FUNCTION__, __LINE__);
+
+                        }
+                        i++;
+
+                    }
+                    printk(KERN_ALERT"Wrote a page in buffer (successuful %zu) (%s:%u)\n",i, __FUNCTION__, __LINE__);
+                }while(done == 0 && Le_buffer.BufFull==0);
                 up(&(Buffer_Tool.SemBuf));
                 return 1;
             }
@@ -330,20 +356,31 @@ static ssize_t Buf_write (struct file *flip, const char __user *ubuf, size_t cou
             printk(KERN_ALERT "Mode pouvant etre bloque (%s:%u)\n", __FUNCTION__, __LINE__);
             down_interruptible(&(Buffer_Tool.SemBuf));
             printk(KERN_ALERT "Semaphore capturer (%s:%u)\n", __FUNCTION__, __LINE__);
-            while(i<count){
-                printk(KERN_ALERT "Je suis dans le while (%s:%u)\n", __FUNCTION__, __LINE__);
-                if(BufIn(&Le_buffer,&(Buffer_Tool.WriteBuf[i]))!=0){
-                    printk(KERN_ALERT "Couldn't push all requested data from driver (successuful %zu) (%s:%u)\n",i, __FUNCTION__, __LINE__);
-                    break;
+
+            do{
+                if((nb-READWRITE_BUFSIZE)<=0){
+                    copy_from_user(Buffer_Tool.WriteBuf,ubuf,nb);
+                    done=1;
+                    printk(KERN_ALERT"Done preparing exit (%s:%u)\n", __FUNCTION__, __LINE__);
                 }
-                printk(KERN_ALERT "dans la boucle du bloquant : %zu",i);
-                i+=1;
-                if(i>17){
-                    printk(KERN_ALERT "Fuck up dans la boucle : %zu",i);
-                    break;
+                else{
+                    copy_from_user(Buffer_Tool.WriteBuf,(ubuf+page_write),READWRITE_BUFSIZE);
+                    nb=nb-READWRITE_BUFSIZE;
+                    page_write=page_write+READWRITE_BUFSIZE;
+                    printk(KERN_ALERT"Value of nb %d (%s:%u)\n", nb, __FUNCTION__, __LINE__);
                 }
-            }
+                i=0;
+                while(i<nb && i < READWRITE_BUFSIZE){
+                   if(BufIn(&Le_buffer,&(Buffer_Tool.WriteBuf[i]))!=0){
+                        printk(KERN_ALERT"Couldn't push all requested data in buffer (successuful %zu) (%s:%u)\n",i, __FUNCTION__, __LINE__);
+                        break;
+                   }
+                   i++;
+                }
+                printk(KERN_ALERT"Wrote a page in buffer (successuful %zu) (%s:%u)\n",i, __FUNCTION__, __LINE__);
+            }while(done == 0 && Le_buffer.BufFull==0);
             up(&(Buffer_Tool.SemBuf));
+            return 1;
         }
     printk(KERN_ALERT"Fonction finie, sortons de la fonctions (%s:%u)\n", __FUNCTION__, __LINE__);
     return 1;
@@ -352,16 +389,18 @@ long Buf_ioctl (struct file *flip, unsigned int cmd, unsigned long arg){
     down_interruptible(&(Buffer_Tool.SemBuf));
     printk(KERN_ALERT "IOCTL value %d %d %d",Le_buffer.InIdx,Buffer_Tool.numReader,Le_buffer.BufSize);
     up(&(Buffer_Tool.SemBuf));
-//    switch (cmd){
-//        case 0:
-//            return (long) Le_buffer.InIdx;
-//        case 1:
-//            return (long) Buffer_Tool.numReader;
-//        case 2:
-//            return (long) Le_buffer.BufSize;
-//        default:
-//            return -EINVAL;
-//    }
+    switch (cmd){
+        case BUFF_GETNUMDATA:
+            return (long) Le_buffer.InIdx;
+        case BUFF_GETNUMREADER:
+            return (long) Buffer_Tool.numReader;
+        case BUFF_GETBUFSIZE:
+            return (long) Le_buffer.BufSize;
+        case BUFF_SETBUFSIZE :
+            break;
+        default:
+            return -EINVAL;
+    }
     return 0;
 }
 
