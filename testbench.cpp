@@ -14,8 +14,8 @@
 int main(void){
     char saisie_de_user[300];
     char lecture_fichier[256];
-    char input=0x00,lecture=0;
-    int i=0,nb_char=0;
+    char input=0x00;
+    int i=0,nb_char=0,taille=0;
     int fp;
 
 
@@ -55,8 +55,8 @@ int main(void){
                     std::cout << "Fichier ouvert avec succes en lecture\n";
                     std::cout<<"Entrez le nombre de charactere a lire\n";
                     std::cin>>nb_char;
-                    read(fp,(char *) lecture_fichier,nb_char);
-                    std::cout << lecture_fichier;
+                    std::cout<<"Nombre de charactere lu : "<<read(fp,(char *) lecture_fichier,nb_char)<<"\n";
+                    std::cout << lecture_fichier<<"\n";
                     close(fp);
                     std::cout << "Fichier fermer\n";
                     for(int i=0;i<256;i++){
@@ -79,10 +79,22 @@ int main(void){
                     printf("Error couldnt open the file\n");
                 } else {
                     std::cout<<"Nombre de donnee    : "<<ioctl(fp,BUFF_GETNUMDATA)<<"\n";
-//                    std::cout<<"Nombre de lecteur   : "<<ioctl(file_descriptor,1)<<"\n";
-//                    std::cout<<"Taille du Buffer    : "<<ioctl(file_descriptor,2)<<"\n";
-                    std::cout<<"Voulez-vous modifier la taille du buffer (Y/n)";
+                    std::cout<<"Nombre de lecteur   : "<<ioctl(fp,BUFF_GETNUMREADER)<<"\n";
+                    std::cout<<"Taille du Buffer    : "<<ioctl(fp,BUFF_GETBUFSIZE)<<"\n";
+                    std::cout<<"Voulez-vous modifier la taille du buffer (Y/n)\n";
+                    std::cin>>input;
+                    if(input=='Y' || input =='y'){
+                        std::cout<<"Veuillez entrez la taille du nouveau buffer\n";
+                        std::cin>>taille;
+                        if(taille>0 && taille<32000){
+                            ioctl(fp,BUFF_SETBUFSIZE,taille);
+                            std::cout<<"Changement effectuer\n";
+                        }
+                        else{
+                            std::cout<<"taille innaproprie\n";
+                        }
 
+                    }
                     close(fp);
                 }
 

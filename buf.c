@@ -17,6 +17,7 @@
 
 #define READWRITE_BUFSIZE 16
 #define DEFAULT_BUFSIZE 256
+#define TEST(X,Y) ((X == 1) ? Y : READWRITE_BUFSIZE)
 MODULE_LICENSE("Dual BSD/GPL");
 
 int Buf_Var = 0;
@@ -132,9 +133,9 @@ int BufOut (struct BufStruct *Buf, unsigned short *Data) {
     //Initialisation des variables importantes :
         Buffer_Tool.numReader=0;
         Buffer_Tool.numWriter=0;
-        Buffer_Tool.ReadBuf=kmalloc(sizeof(char)*READWRITE_BUFSIZE,GFP_KERNEL);
-        Buffer_Tool.WriteBuf=kmalloc(sizeof(char)*READWRITE_BUFSIZE,GFP_KERNEL);
-        Le_buffer.Buffer=kmalloc(sizeof(char)*DEFAULT_BUFSIZE,GFP_KERNEL);
+        Buffer_Tool.ReadBuf=kmalloc(sizeof(unsigned short)*READWRITE_BUFSIZE,GFP_KERNEL);
+        Buffer_Tool.WriteBuf=kmalloc(sizeof(unsigned short)*READWRITE_BUFSIZE,GFP_KERNEL);
+        Le_buffer.Buffer=kmalloc(sizeof(unsigned short)*DEFAULT_BUFSIZE,GFP_KERNEL);
         Le_buffer.BufEmpty=1;
         Le_buffer.BufFull=0;
         Le_buffer.BufSize=DEFAULT_BUFSIZE;
@@ -228,6 +229,7 @@ int Buf_release(struct inode *inode, struct file *filp) {
                 Buffer_Tool.numReader--;
             }
             up(&(Buffer_Tool.SemBuf));
+            printk(KERN_ALERT "Buf was open in Read : releasing driver (%s:%u)\n", __FUNCTION__, __LINE__);
             break;
         case O_WRONLY :
             down_interruptible(&(Buffer_Tool.SemBuf));
@@ -257,7 +259,7 @@ int Buf_release(struct inode *inode, struct file *filp) {
 
 static ssize_t Buf_read(struct file *flip, char __user *ubuf, size_t count, loff_t *f_ops){
 
-        int i=0, j=0,empty=0,nb=0;
+        int i=0, j=0,nb=0,k=0,l=0,done=0;
         nb=(int) count;
         printk(KERN_ALERT"La valeur de nb est : %d (%s:%u)\n",nb, __FUNCTION__, __LINE__);
         if((flip->f_flags)& O_NONBLOCK){
@@ -268,53 +270,91 @@ static ssize_t Buf_read(struct file *flip, char __user *ubuf, size_t count, loff
             }
             else{
                 printk(KERN_ALERT"Semaphore disponible  (%s:%u)\n", __FUNCTION__, __LINE__);
-                while(i<nb){
-                    if(BufOut(&Le_buffer,&(Buffer_Tool.ReadBuf[j]))!=0){
-                        printk(KERN_ALERT"Couldn't pop all requested data from driver (successuful %d) (%s:%u)\n",i, __FUNCTION__, __LINE__);
-                        empty=1;
+                i=0;
+                do{
+                    if((nb-i)<=READWRITE_BUFSIZE){
+                        printk(KERN_ALERT"ALMOST DONE\n");
+                        done=1;
+                        for(k=0;k<(nb-i);k++){
+                            if(BufOut(&Le_buffer,&(Buffer_Tool.ReadBuf[k]))!=0){
+                                for(j=0;j<k;j++){
+                                    copy_to_user(&(ubuf[i+j]),&(Buffer_Tool.ReadBuf[j]),1);
+                                }
+                                up(&(Buffer_Tool.SemBuf));
+                                printk(KERN_ALERT"EXIT SKETCH 1");
+                                return (ssize_t) (i+k);
+                            }
+                        }
                     }
+                    else{
+                        for(j=0;j<READWRITE_BUFSIZE;j++){
+                            if(BufOut(&Le_buffer,&(Buffer_Tool.ReadBuf[j]))!=0){
+                                for(l=0;l<j;l++){
+                                    copy_to_user(&(ubuf[i+l]),&(Buffer_Tool.ReadBuf[l]),1);
+                                }
+                                up(&(Buffer_Tool.SemBuf));
+                                printk(KERN_ALERT"EXIT SKETCH 2");
+                                return (ssize_t) (i+j);
+                            }
+                        }
 
-                    if(empty==1){
-                        copy_to_user((ubuf+(i%READWRITE_BUFSIZE)), (char*)Buffer_Tool.ReadBuf, j);
                     }
-                    j++;
-                    i++;
-                    if((j%READWRITE_BUFSIZE)==0){
-                        copy_to_user((ubuf+(i%READWRITE_BUFSIZE)), (char*)Buffer_Tool.ReadBuf, READWRITE_BUFSIZE);
-                        j=0;
+                    for(j=0;j<TEST(done,k);j++){
+                        copy_to_user(&(ubuf[i+j]),&(Buffer_Tool.ReadBuf[j]),1);
+                        printk(KERN_ALERT"CHARACTER COPIED TO USER : %d %c %c (%s:%u)\n",(i+j),Buffer_Tool.ReadBuf[j],ubuf[i+j], __FUNCTION__, __LINE__);
                     }
-
-                }
+                    i+=READWRITE_BUFSIZE;
+                }while(done == 0);
                 up(&(Buffer_Tool.SemBuf));
             }
         }
         else{
             down_interruptible(&(Buffer_Tool.SemBuf));
-            while(i<nb){
-                if(BufOut(&Le_buffer,&(Buffer_Tool.ReadBuf[j]))!=0){
-                    printk(KERN_ALERT"Couldn't pop all requested data from driver (successuful %d) (%s:%u)\n",i, __FUNCTION__, __LINE__);
-                    empty=1;
+            i=0;
+            do{
+                if((nb-i)<=READWRITE_BUFSIZE){
+                    printk(KERN_ALERT"ALMOST DONE\n");
+                    done=1;
+                    for(k=0;k<(nb-i);k++){
+                        if(BufOut(&Le_buffer,&(Buffer_Tool.ReadBuf[k]))!=0){
+                            for(j=0;j<k;j++){
+                                copy_to_user(&(ubuf[i+j]),&(Buffer_Tool.ReadBuf[j]),1);
+                            }
+                            up(&(Buffer_Tool.SemBuf));
+                            printk(KERN_ALERT"EXIT SKETCH 1");
+                            return (ssize_t) (i+k);
+                        }
+                    }
                 }
+                else{
+                    for(j=0;j<READWRITE_BUFSIZE;j++){
+                        if(BufOut(&Le_buffer,&(Buffer_Tool.ReadBuf[j]))!=0){
+                            for(l=0;l<j;l++){
+                                copy_to_user(&(ubuf[i+l]),&(Buffer_Tool.ReadBuf[l]),1);
+                            }
+                            up(&(Buffer_Tool.SemBuf));
+                            printk(KERN_ALERT"EXIT SKETCH 2");
+                            return (ssize_t) (i+j);
+                        }
+                    }
 
-                if(empty==1){
-                    copy_to_user((ubuf+(i%READWRITE_BUFSIZE)), (char*)Buffer_Tool.ReadBuf, j);
                 }
-                j++;
-                i++;
-                if((j%READWRITE_BUFSIZE)==0){
-                    copy_to_user((ubuf+(i%READWRITE_BUFSIZE)), (char*)Buffer_Tool.ReadBuf, READWRITE_BUFSIZE);
-                    j=0;
+                for(j=0;j<TEST(done,k);j++){
+                    copy_to_user(&(ubuf[i+j]),&(Buffer_Tool.ReadBuf[j]),1);
+                    printk(KERN_ALERT"CHARACTER COPIED TO USER : %d %c %c (%s:%u)\n",(i+j),Buffer_Tool.ReadBuf[j],ubuf[i+j], __FUNCTION__, __LINE__);
                 }
-            }
+                i+=READWRITE_BUFSIZE;
+            }while(done == 0);
+
+
             up(&(Buffer_Tool.SemBuf));
 
         }
-    return 1;
+    return count;
 }
 static ssize_t Buf_write (struct file *flip, const char __user *ubuf, size_t count,
         loff_t *f_ops){
-        size_t i=0;
-        int page_write=0,done=0,nb=0;
+        int page_write=0,done=0,nb=0,i=0,j=0;
         nb= (int) count;
         printk(KERN_ALERT"La valeur de count est : %zu %d (%s:%u)\n",count, nb, __FUNCTION__, __LINE__);
         if((flip->f_flags)& O_NONBLOCK){
@@ -325,28 +365,34 @@ static ssize_t Buf_write (struct file *flip, const char __user *ubuf, size_t cou
             else{
                 printk(KERN_ALERT"Semaphore disponible  (%s:%u)\n", __FUNCTION__, __LINE__);
                 do{
-                    if(nb<READWRITE_BUFSIZE){
-                        copy_from_user(Buffer_Tool.WriteBuf,ubuf,nb);
+                    if((nb-READWRITE_BUFSIZE)<=0){
                         done=1;
                         printk(KERN_ALERT"Done preparing exit (%s:%u)\n", __FUNCTION__, __LINE__);
+                        for(i=0;i<nb;i++){
+                            copy_from_user(&(Buffer_Tool.WriteBuf[i]),&(ubuf[j+i]),1);
+                            printk(KERN_ALERT"Charatere ecrit : %d %c %c (%s:%u)\n",i,Buffer_Tool.WriteBuf[i],ubuf[j+i], __FUNCTION__, __LINE__);
+                        }
                     }
                     else{
-                        copy_from_user(Buffer_Tool.WriteBuf,(ubuf+page_write),READWRITE_BUFSIZE);
+                        for(i=0;i<READWRITE_BUFSIZE;i++){
+                            copy_from_user(&(Buffer_Tool.WriteBuf[i]),&(ubuf[j+i]),1);
+                            printk(KERN_ALERT"Charatere ecrit : %d %c %c (%s:%u)\n",i,Buffer_Tool.WriteBuf[i],ubuf[i], __FUNCTION__, __LINE__);
+                        }
+                        j+=(READWRITE_BUFSIZE);
                         nb=nb-READWRITE_BUFSIZE;
                         page_write=page_write+READWRITE_BUFSIZE;
                         printk(KERN_ALERT"Value of nb %d (%s:%u)\n", nb, __FUNCTION__, __LINE__);
                     }
-
                     i=0;
-                    while(i<nb && i < READWRITE_BUFSIZE){
+                    while( i < TEST(done,nb)){
                         if(BufIn(&Le_buffer,&(Buffer_Tool.WriteBuf[i]))!=0){
-                            printk(KERN_ALERT"Couldn't push all requested data in buffer (successuful %zu) (%s:%u)\n",i, __FUNCTION__, __LINE__);
-
+                            printk(KERN_ALERT"Couldn't push all requested data in buffer (successuful %d) (%s:%u)\n",i, __FUNCTION__, __LINE__);
+                            up(&(Buffer_Tool.SemBuf));
+                            return (ssize_t) (j+i);
                         }
                         i++;
-
                     }
-                    printk(KERN_ALERT"Wrote a page in buffer (successuful %zu) (%s:%u)\n",i, __FUNCTION__, __LINE__);
+                    printk(KERN_ALERT"Wrote a page in buffer (successuful %d) (%s:%u)\n",i, __FUNCTION__, __LINE__);
                 }while(done == 0 && Le_buffer.BufFull==0);
                 up(&(Buffer_Tool.SemBuf));
                 return 1;
@@ -359,25 +405,34 @@ static ssize_t Buf_write (struct file *flip, const char __user *ubuf, size_t cou
 
             do{
                 if((nb-READWRITE_BUFSIZE)<=0){
-                    copy_from_user(Buffer_Tool.WriteBuf,ubuf,nb);
                     done=1;
                     printk(KERN_ALERT"Done preparing exit (%s:%u)\n", __FUNCTION__, __LINE__);
+                    for(i=0;i<nb;i++){
+                        copy_from_user(&(Buffer_Tool.WriteBuf[i]),&(ubuf[j+i]),1);
+                    }
                 }
                 else{
-                    copy_from_user(Buffer_Tool.WriteBuf,(ubuf+page_write),READWRITE_BUFSIZE);
+                    for(i=0;i<READWRITE_BUFSIZE;i++){
+                        copy_from_user(&(Buffer_Tool.WriteBuf[i]),&(ubuf[j+i]),1);
+                    }
                     nb=nb-READWRITE_BUFSIZE;
+                    j+=(READWRITE_BUFSIZE);
                     page_write=page_write+READWRITE_BUFSIZE;
                     printk(KERN_ALERT"Value of nb %d (%s:%u)\n", nb, __FUNCTION__, __LINE__);
                 }
                 i=0;
-                while(i<nb && i < READWRITE_BUFSIZE){
+                while( i < TEST(done,nb)){
                    if(BufIn(&Le_buffer,&(Buffer_Tool.WriteBuf[i]))!=0){
-                        printk(KERN_ALERT"Couldn't push all requested data in buffer (successuful %zu) (%s:%u)\n",i, __FUNCTION__, __LINE__);
-                        break;
+                        printk(KERN_ALERT"Couldn't push all requested data in buffer (successuful %d) (%s:%u)\n",i, __FUNCTION__, __LINE__);
+                        up(&(Buffer_Tool.SemBuf));
+                        return (ssize_t) (j+i);
                    }
-                   i++;
+
+                    printk(KERN_ALERT"Charatere ecrit : %d %c %c (%s:%u)\n",i,Buffer_Tool.WriteBuf[i],Le_buffer.Buffer[i], __FUNCTION__, __LINE__);
+                    i++;
+
                 }
-                printk(KERN_ALERT"Wrote a page in buffer (successuful %zu) (%s:%u)\n",i, __FUNCTION__, __LINE__);
+                printk(KERN_ALERT"Wrote a page in buffer (successuful %d) (%s:%u)\n",i, __FUNCTION__, __LINE__);
             }while(done == 0 && Le_buffer.BufFull==0);
             up(&(Buffer_Tool.SemBuf));
             return 1;
@@ -386,18 +441,30 @@ static ssize_t Buf_write (struct file *flip, const char __user *ubuf, size_t cou
     return 1;
 }
 long Buf_ioctl (struct file *flip, unsigned int cmd, unsigned long arg){
-    down_interruptible(&(Buffer_Tool.SemBuf));
-    printk(KERN_ALERT "IOCTL value %d %d %d",Le_buffer.InIdx,Buffer_Tool.numReader,Le_buffer.BufSize);
-    up(&(Buffer_Tool.SemBuf));
+    int buffer=0;
     switch (cmd){
         case BUFF_GETNUMDATA:
-            return (long) Le_buffer.InIdx;
+            down_interruptible(&(Buffer_Tool.SemBuf));
+            buffer=(Le_buffer.InIdx-Le_buffer.OutIdx);
+            up(&(Buffer_Tool.SemBuf));
+            return (long) buffer;
         case BUFF_GETNUMREADER:
-            return (long) Buffer_Tool.numReader;
+            down_interruptible(&(Buffer_Tool.SemBuf));
+            buffer=Buffer_Tool.numReader;
+            up(&(Buffer_Tool.SemBuf));
+            return (long) buffer ;
         case BUFF_GETBUFSIZE:
-            return (long) Le_buffer.BufSize;
+            down_interruptible(&(Buffer_Tool.SemBuf));
+            buffer=Le_buffer.BufSize;
+            up(&(Buffer_Tool.SemBuf));
+            return (long) buffer;
         case BUFF_SETBUFSIZE :
-            break;
+            down_interruptible(&(Buffer_Tool.SemBuf));
+            kfree(Le_buffer.Buffer);
+            Le_buffer.Buffer=kmalloc(sizeof(unsigned short)*arg,GFP_KERNEL);
+            Le_buffer.BufSize=arg;
+            up(&(Buffer_Tool.SemBuf));
+            return 0;
         default:
             return -EINVAL;
     }
