@@ -378,7 +378,6 @@ static ssize_t Buf_write (struct file *flip, const char __user *ubuf, size_t cou
                             copy_from_user(&(Buffer_Tool.WriteBuf[i]),&(ubuf[j+i]),1);
                             printk(KERN_ALERT"Charatere ecrit : %d %c %c (%s:%u)\n",i,Buffer_Tool.WriteBuf[i],ubuf[i], __FUNCTION__, __LINE__);
                         }
-                        j+=(READWRITE_BUFSIZE);
                         nb=nb-READWRITE_BUFSIZE;
                         page_write=page_write+READWRITE_BUFSIZE;
                         printk(KERN_ALERT"Value of nb %d (%s:%u)\n", nb, __FUNCTION__, __LINE__);
@@ -386,12 +385,13 @@ static ssize_t Buf_write (struct file *flip, const char __user *ubuf, size_t cou
                     i=0;
                     while( i < TEST(done,nb)){
                         if(BufIn(&Le_buffer,&(Buffer_Tool.WriteBuf[i]))!=0){
-                            printk(KERN_ALERT"Couldn't push all requested data in buffer (successuful %d) (%s:%u)\n",i, __FUNCTION__, __LINE__);
+                            printk(KERN_ALERT"Couldn't push all requested data in buffer (successuful %d) (%s:%u)\n",(i+j), __FUNCTION__, __LINE__);
                             up(&(Buffer_Tool.SemBuf));
                             return (ssize_t) (j+i);
                         }
                         i++;
                     }
+                    j+=(READWRITE_BUFSIZE);
                     printk(KERN_ALERT"Wrote a page in buffer (successuful %d) (%s:%u)\n",i, __FUNCTION__, __LINE__);
                 }while(done == 0 && Le_buffer.BufFull==0);
                 up(&(Buffer_Tool.SemBuf));
@@ -416,14 +416,13 @@ static ssize_t Buf_write (struct file *flip, const char __user *ubuf, size_t cou
                         copy_from_user(&(Buffer_Tool.WriteBuf[i]),&(ubuf[j+i]),1);
                     }
                     nb=nb-READWRITE_BUFSIZE;
-                    j+=(READWRITE_BUFSIZE);
                     page_write=page_write+READWRITE_BUFSIZE;
                     printk(KERN_ALERT"Value of nb %d (%s:%u)\n", nb, __FUNCTION__, __LINE__);
                 }
                 i=0;
                 while( i < TEST(done,nb)){
                    if(BufIn(&Le_buffer,&(Buffer_Tool.WriteBuf[i]))!=0){
-                        printk(KERN_ALERT"Couldn't push all requested data in buffer (successuful %d) (%s:%u)\n",i, __FUNCTION__, __LINE__);
+                        printk(KERN_ALERT"Couldn't push all requested data in buffer (successuful %d) (%s:%u)\n",(j+i), __FUNCTION__, __LINE__);
                         up(&(Buffer_Tool.SemBuf));
                         return (ssize_t) (j+i);
                    }
@@ -432,6 +431,7 @@ static ssize_t Buf_write (struct file *flip, const char __user *ubuf, size_t cou
                     i++;
 
                 }
+                j+=(READWRITE_BUFSIZE);
                 printk(KERN_ALERT"Wrote a page in buffer (successuful %d) (%s:%u)\n",i, __FUNCTION__, __LINE__);
             }while(done == 0 && Le_buffer.BufFull==0);
             up(&(Buffer_Tool.SemBuf));

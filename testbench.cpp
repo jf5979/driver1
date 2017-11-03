@@ -40,7 +40,7 @@ int main(void){
                     }
                     i++;
                     std::cout<<"Number of character is : "<<i<<'\n';
-                    write(fp,(char*) saisie_de_user,i);
+                    std::cout<<"Nombre de charactere ecrit avec succes : "<<write(fp,(char*) saisie_de_user,i)<<'\n';
 
                     std::cout << "Ecriture completer, fermeture du fichier\n";
                     close(fp);
@@ -56,7 +56,10 @@ int main(void){
                     std::cout<<"Entrez le nombre de charactere a lire\n";
                     std::cin>>nb_char;
                     std::cout<<"Nombre de charactere lu : "<<read(fp,(char *) lecture_fichier,nb_char)<<"\n";
-                    std::cout << lecture_fichier<<"\n";
+                    for(i=0;i<nb_char;i++){
+                        std::cout<<lecture_fichier[i];
+                    }
+                    std::cout <<"\n";
                     close(fp);
                     std::cout << "Fichier fermer\n";
                     for(int i=0;i<256;i++){
