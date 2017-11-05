@@ -37,8 +37,6 @@ typedef struct BufStruct {
     unsigned short *Buffer;
 } Buffer;
 
-
-
 typedef struct Buf_Dev {
     unsigned short *ReadBuf;
     unsigned short *WriteBuf;
@@ -68,9 +66,6 @@ struct file_operations Buf_fops = {
         .unlocked_ioctl = Buf_ioctl,
 };
 
-
-
-
 //global structure
 
 BDev Buffer_Tool;
@@ -78,7 +73,12 @@ Buffer Le_buffer;
 static DECLARE_WAIT_QUEUE_HEAD(reading_queue);
 static DECLARE_WAIT_QUEUE_HEAD(writing_queue);
 
-
+/**
+ * @brief BufIn permet l'ajout de donnees dans le buffer circulaire
+ * @param Buf Pointeur vers la structure du buffer circulaire
+ * @param Data Pointeur vers la donnees a ajouter
+ * @return 0 en cas de succes -1 en cas d'echec
+ */
 int BufIn (struct BufStruct *Buf, unsigned short *Data) {
     if (Buf->BufFull) {
         printk(KERN_ALERT"Buffer Full (%s:%u)\n", __FUNCTION__, __LINE__);
@@ -91,7 +91,12 @@ int BufIn (struct BufStruct *Buf, unsigned short *Data) {
         Buf->BufFull = 1;
     return 0;
 }
-
+/**
+ * @brief BufOut permet le retrait de donnees dans le buffer circulaire
+ * @param Buf Pointeur vers la structure du buffer circulaire
+ * @param Data Pointeur pour la donnees a retirer
+ * @return 0 en cas de succes -1 en cas d'echec
+ */
 int BufOut (struct BufStruct *Buf, unsigned short *Data) {
     if (Buf->BufEmpty)
         return -1;
@@ -103,18 +108,12 @@ int BufOut (struct BufStruct *Buf, unsigned short *Data) {
     return 0;
 }
 
-
-
-
-
 /**
  * Buf_init
  * @brief Fonction qui permet l'initialisation du module
- *
+ * @return Retourne un code d'erreur ou 0 en cas de succes
  *
  */
-
-
  static int __init Buf_init (void) {
     int result;
 
@@ -132,7 +131,6 @@ int BufOut (struct BufStruct *Buf, unsigned short *Data) {
     Buffer_Tool.cdev.owner = THIS_MODULE;
     if (cdev_add(&(Buffer_Tool.cdev), Buffer_Tool.dev, 1) < 0)
         printk(KERN_ALERT"Buf_init ERROR IN cdev_add (%s:%s:%u)\n", __FILE__, __FUNCTION__, __LINE__);
-
 
     //Initialisation des variables importantes :
         Buffer_Tool.numReader=0;
@@ -155,11 +153,9 @@ int BufOut (struct BufStruct *Buf, unsigned short *Data) {
 }
 
 /**
- *@brief Buf_exit
- * Fonction qui permet de quitter le module kernel
+ *@brief Buf_exit Fonction qui permet de quitter le module kernel
  *
- * */
-
+ */
  static void __exit Buf_exit (void) {
     down_interruptible(&(Buffer_Tool.SemBuf));
     kfree(Buffer_Tool.ReadBuf);
@@ -174,11 +170,11 @@ int BufOut (struct BufStruct *Buf, unsigned short *Data) {
     printk(KERN_ALERT "Buf_exit (%s:%u) => Module unloaded successfully\n", __FUNCTION__, __LINE__);
 }
 
-
-
-
 /**
  * @brief Fonction qui permet l'ouverture du driver
+ * @param inode Pointeur vers la structure inode qui contient les informations sur le fichier
+ * @param filp Pointeur vers la structure file qui contient les drapeaux du fichier
+ * @return 0 en cas de succes sinon la valeur negative du code d'erreur
  * **/
 int Buf_open(struct inode *inode, struct file *filp) {
     switch ((filp->f_flags & O_ACCMODE)){
@@ -192,11 +188,11 @@ int Buf_open(struct inode *inode, struct file *filp) {
             if(Buffer_Tool.numWriter==0){
                 Buffer_Tool.numWriter+=1;
                 up(&(Buffer_Tool.SemBuf));
-                printk(KERN_ALERT "Buf_open in Write Only : locking writer mode (has %d writer) (%s:%u)\n",Buffer_Tool.numWriter, __FUNCTION__, __LINE__);
+                printk(KERN_WARNING "Buf_open in Write Only : locking writer mode (has %d writer) (%s:%u)\n",Buffer_Tool.numWriter, __FUNCTION__, __LINE__);
             }
             else{
                 up(&(Buffer_Tool.SemBuf));
-                printk(KERN_ALERT "Driver already in writing mode (has %d writer) (%s:%u)\n",Buffer_Tool.numWriter, __FUNCTION__, __LINE__);
+                printk(KERN_WARNING "Driver already in writing mode (has %d writer) (%s:%u)\n",Buffer_Tool.numWriter, __FUNCTION__, __LINE__);
                 return -ENOTTY;
             }
 
@@ -207,23 +203,25 @@ int Buf_open(struct inode *inode, struct file *filp) {
                 Buffer_Tool.numWriter++;
                 Buffer_Tool.numReader++;
                 up(&(Buffer_Tool.SemBuf));
-                printk(KERN_ALERT"Buf_open in Read Write : locking writer mode  (%s:%u)\n", __FUNCTION__, __LINE__);
+                printk(KERN_WARNING"Buf_open in Read Write : locking writer mode  (%s:%u)\n", __FUNCTION__, __LINE__);
             }
             else{
                 up(&(Buffer_Tool.SemBuf));
-                printk(KERN_ALERT "Driver already in writing mode sadly (%s:%u)\n", __FUNCTION__, __LINE__);
+                printk(KERN_WARNING "Driver already in writing mode sadly (%s:%u)\n", __FUNCTION__, __LINE__);
                 return -ENOTTY;
             }
             break;
         default:
             break;
-
     }
 
     return 0;
 }
 /**
  * @brief Fonction qui permet la fermeture du driver
+ * @param inode Pointeur vers la structure inode qui contient les informations sur le fichier
+ * @param filp Pointeur vers la structure file qui contient les drapeaux du fichier
+ * @return 0 en cas de succes sinon la valeur negative du code d'erreur
  * **/
 int Buf_release(struct inode *inode, struct file *filp) {
     switch ((filp->f_flags & O_ACCMODE)){
@@ -261,8 +259,15 @@ int Buf_release(struct inode *inode, struct file *filp) {
     return 0;
 }
 
+/**
+ * @brief Buf_read Fonction permettant la lecture de donnes dans le buffer
+ * @param flip Pointeur vers la structure file du fichier
+ * @param ubuf Pointeur vers le buffer de lecture du user space
+ * @param count Nombre de charactere a lire
+ * @param f_ops Pointeur vers l'offset que le kernel a attribue au driver
+ * @return Valeur negative du code d'erreur ou nombre de charatere lu
+ */
 static ssize_t Buf_read(struct file *flip, char __user *ubuf, size_t count, loff_t *f_ops){
-
         int i=0, j=0,nb=0,k=0,l=0,done=0;
         nb=(int) count;
         printk(KERN_ALERT"La valeur de nb est : %d (%s:%u)\n",nb, __FUNCTION__, __LINE__);
@@ -298,7 +303,6 @@ static ssize_t Buf_read(struct file *flip, char __user *ubuf, size_t count, loff
                         }
                         up(&(Buffer_Tool.SemBuf));
                         wake_up_interruptible(&(writing_queue));
-                        printk(KERN_ALERT"EXIT SKETCH 1");
                         return (ssize_t) (i+k);
                     }
                 }
@@ -310,7 +314,6 @@ static ssize_t Buf_read(struct file *flip, char __user *ubuf, size_t count, loff
                             copy_to_user(&(ubuf[i+l]),&(Buffer_Tool.ReadBuf[l]),1);
                         }
                         up(&(Buffer_Tool.SemBuf));
-                        printk(KERN_ALERT"EXIT SKETCH 2");
                         wake_up_interruptible(&(writing_queue));
                         return (ssize_t) (i+j);
                     }
@@ -319,17 +322,22 @@ static ssize_t Buf_read(struct file *flip, char __user *ubuf, size_t count, loff
             }
             for(j=0;j<TEST(done,k);j++){
                 copy_to_user(&(ubuf[i+j]),&(Buffer_Tool.ReadBuf[j]),1);
-                printk(KERN_ALERT"CHARACTER COPIED TO USER : %d %c %c (%s:%u)\n",(i+j),Buffer_Tool.ReadBuf[j],ubuf[i+j], __FUNCTION__, __LINE__);
+                printk(KERN_ALERT"CHARACTER COPIED TO USER : %d %c (%s:%u)\n",(i+j),Buffer_Tool.ReadBuf[j], __FUNCTION__, __LINE__);
             }
             i+=READWRITE_BUFSIZE;
         }while(done == 0);
-
-
         up(&(Buffer_Tool.SemBuf));
-
-    wake_up_interruptible(&(writing_queue));
-    return count;
+        wake_up_interruptible(&(writing_queue));
+        return count;
 }
+/**
+ * @brief Buf_write Fonction permettant l'ecriture de donnes dans le buffer
+ * @param flip Pointeur vers la structure file du fichier
+ * @param ubuf Pointeur vers le buffer d'ecriture du user space
+ * @param count Nombre de charactere a ecrire
+ * @param f_ops Pointeur vers l'offset que le kernel a attribue au driver
+ * @return Valeur negative du code d'erreur ou nombre de charatere ecrit
+ */
 static ssize_t Buf_write (struct file *flip, const char __user *ubuf, size_t count,
         loff_t *f_ops){
         int page_write=0,done=0,nb=0,i=0,j=0;
@@ -390,7 +398,13 @@ static ssize_t Buf_write (struct file *flip, const char __user *ubuf, size_t cou
         return count;
 }
 
-
+/**
+ * @brief Buf_ioctl Fonction permettant l'obtention et la modification de donnees sur le buffer
+ * @param flip Pointeur vers la structure file du driver
+ * @param cmd Commande pour la fonction ioctl defini dans buf.h
+ * @param arg argument pour la taille du nouveau buffer
+ * @return retourne le parametre desirer ou un code d'erreur si la commande est inexistante
+ */
 long Buf_ioctl (struct file *flip, unsigned int cmd, unsigned long arg){
     int buffer=0;
     switch (cmd){
@@ -419,11 +433,7 @@ long Buf_ioctl (struct file *flip, unsigned int cmd, unsigned long arg){
         default:
             return -EINVAL;
     }
-    return 0;
 }
-
-
-
 
 module_init(Buf_init);
 module_exit(Buf_exit);
