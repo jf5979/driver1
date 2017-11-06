@@ -19,6 +19,8 @@
 #define READWRITE_BUFSIZE 16
 #define DEFAULT_BUFSIZE 256
 #define TEST(X,Y) ((X == 1) ? Y : READWRITE_BUFSIZE)
+#define SIZE(F,R,M) ((F>R) ? (F-R) : (M-R+F))
+
 MODULE_LICENSE("Dual BSD/GPL");
 
 int Buf_Var = 0;
@@ -298,25 +300,60 @@ static ssize_t Buf_read(struct file *flip, char __user *ubuf, size_t count, loff
                 done=1;
                 for(k=0;k<(nb-i);k++){
                     if(BufOut(&Le_buffer,&(Buffer_Tool.ReadBuf[k]))!=0){
-                        for(j=0;j<k;j++){
-                            copy_to_user(&(ubuf[i+j]),&(Buffer_Tool.ReadBuf[j]),1);
+                        if((flip->f_flags)& O_NONBLOCK){
+                            for(j=0;j<k;j++){
+                                copy_to_user(&(ubuf[i+j]),&(Buffer_Tool.ReadBuf[j]),1);
+                                printk(KERN_ALERT"CHARACTER COPIED TO USER : %d %c (%s:%u)\n",(i+j),Buffer_Tool.ReadBuf[j], __FUNCTION__, __LINE__);
+                            }
+                            up(&(Buffer_Tool.SemBuf));
+                            wake_up_interruptible(&(writing_queue));
+
+                            return (ssize_t) (i+k);
                         }
-                        up(&(Buffer_Tool.SemBuf));
-                        wake_up_interruptible(&(writing_queue));
-                        return (ssize_t) (i+k);
+                        else{
+                            up(&(Buffer_Tool.SemBuf));
+                            printk(KERN_WARNING"Manque de donnees, Le processus va dormir (%s:%u)\n", __FUNCTION__, __LINE__);
+                            wake_up_interruptible(&(writing_queue));
+                            k--;//Pour eviter de sauter un charatere
+                            if(wait_event_interruptible(reading_queue, ((Le_buffer.BufEmpty) != 1))){
+                                return -ERESTARTSYS;
+                            }
+                            printk(KERN_WARNING"Donnee disponible, Le processus est reveille (%s:%u)\n", __FUNCTION__, __LINE__);
+                            if (down_interruptible(&(Buffer_Tool.SemBuf))){
+                                return -ERESTARTSYS;
+                            }
+                        }
+
                     }
                 }
             }
             else{
                 for(j=0;j<READWRITE_BUFSIZE;j++){
                     if(BufOut(&Le_buffer,&(Buffer_Tool.ReadBuf[j]))!=0){
-                        for(l=0;l<j;l++){
-                            copy_to_user(&(ubuf[i+l]),&(Buffer_Tool.ReadBuf[l]),1);
+                        if((flip->f_flags)& O_NONBLOCK){
+                            for(l=0;l<j;l++){
+                                copy_to_user(&(ubuf[i+l]),&(Buffer_Tool.ReadBuf[l]),1);
+                                printk(KERN_ALERT"CHARACTER COPIED TO USER : %d %c (%s:%u)\n",(i+j),Buffer_Tool.ReadBuf[j], __FUNCTION__, __LINE__);
+                            }
+                            up(&(Buffer_Tool.SemBuf));
+                            wake_up_interruptible(&(writing_queue));
+                            return (ssize_t) (i+j);
                         }
-                        up(&(Buffer_Tool.SemBuf));
-                        wake_up_interruptible(&(writing_queue));
-                        return (ssize_t) (i+j);
+                        else{
+                            up(&(Buffer_Tool.SemBuf));
+                            printk(KERN_WARNING"Manque de donnees, Le processus va dormir (%s:%u)\n", __FUNCTION__, __LINE__);
+                            wake_up_interruptible(&(writing_queue));
+                            j--;//Pour eviter de sauter un charactere
+                            if(wait_event_interruptible(reading_queue, ((Le_buffer.BufEmpty) != 1))){
+                                return -ERESTARTSYS;
+                            }
+                            printk(KERN_WARNING"Donnee disponible, Le processus est reveille (%s:%u)\n", __FUNCTION__, __LINE__);
+                            if (down_interruptible(&(Buffer_Tool.SemBuf))){
+                                return -ERESTARTSYS;
+                            }
+                        }
                     }
+
                 }
 
             }
@@ -379,15 +416,30 @@ static ssize_t Buf_write (struct file *flip, const char __user *ubuf, size_t cou
             }
             i=0;
             while( i < TEST(done,nb)){
-               if(BufIn(&Le_buffer,&(Buffer_Tool.WriteBuf[i]))!=0){
-                    printk(KERN_ALERT"Couldn't push all requested data in buffer (successuful %d) (%s:%u)\n",(j+i), __FUNCTION__, __LINE__);
-                    up(&(Buffer_Tool.SemBuf));
-                    wake_up_interruptible(&(reading_queue));
-                    return (ssize_t) (j+i);
-               }
-               printk(KERN_ALERT"Charatere ecrit : %d %c %c (%s:%u)\n",i,Buffer_Tool.WriteBuf[i],Le_buffer.Buffer[i], __FUNCTION__, __LINE__);
-               i++;
-
+                if(BufIn(&Le_buffer,&(Buffer_Tool.WriteBuf[i]))!=0){
+                    if((flip->f_flags)& O_NONBLOCK){
+                        printk(KERN_ALERT"Couldn't push all requested data in buffer (successuful %d) (%s:%u)\n",(j+i), __FUNCTION__, __LINE__);
+                        up(&(Buffer_Tool.SemBuf));
+                        wake_up_interruptible(&(reading_queue));
+                        return (ssize_t) (j+i);
+                    }
+                    else{
+                        up(&(Buffer_Tool.SemBuf));
+                        printk(KERN_WARNING"Manque de place, Le processus va dormir (%s:%u)\n", __FUNCTION__, __LINE__);
+                        wake_up_interruptible(&(reading_queue));
+                        if(wait_event_interruptible(writing_queue, ((Le_buffer.BufFull) != 1))){
+                            return -ERESTARTSYS;
+                        }
+                        printk(KERN_WARNING"Place disponible, Le processus est reveille (%s:%u)\n", __FUNCTION__, __LINE__);
+                        if (down_interruptible(&(Buffer_Tool.SemBuf))){
+                            return -ERESTARTSYS;
+                        }
+                    }
+                }
+                else{
+                    printk(KERN_ALERT"Charatere ecrit : %d %c (%s:%u)\n",i,Buffer_Tool.WriteBuf[j+i], __FUNCTION__, __LINE__);
+                    i++;
+                }
             }
             j+=(READWRITE_BUFSIZE);
             printk(KERN_ALERT"Wrote a page in buffer (successuful %d) (%s:%u)\n",i, __FUNCTION__, __LINE__);
@@ -406,11 +458,24 @@ static ssize_t Buf_write (struct file *flip, const char __user *ubuf, size_t cou
  * @return retourne le parametre desirer ou un code d'erreur si la commande est inexistante
  */
 long Buf_ioctl (struct file *flip, unsigned int cmd, unsigned long arg){
-    int buffer=0;
+    int buffer=0,size=0,i=0;
+    unsigned short *Buffer_temp;
     switch (cmd){
         case BUFF_GETNUMDATA:
             down_interruptible(&(Buffer_Tool.SemBuf));
-            buffer=(Le_buffer.InIdx-Le_buffer.OutIdx);
+            if(Le_buffer.InIdx==Le_buffer.OutIdx){
+                if(Le_buffer.BufFull){
+                    buffer=Le_buffer.BufSize;
+                }
+                else{
+                    buffer=0;
+                }
+                up(&(Buffer_Tool.SemBuf));
+                return buffer;
+            }
+            else{
+                buffer=SIZE(Le_buffer.InIdx,Le_buffer.OutIdx,Le_buffer.BufSize);
+            }
             up(&(Buffer_Tool.SemBuf));
             return (long) buffer;
         case BUFF_GETNUMREADER:
@@ -424,9 +489,41 @@ long Buf_ioctl (struct file *flip, unsigned int cmd, unsigned long arg){
             up(&(Buffer_Tool.SemBuf));
             return (long) buffer;
         case BUFF_SETBUFSIZE :
-            down_interruptible(&(Buffer_Tool.SemBuf));
+            if (!capable(CAP_SYS_ADMIN))
+                return -EACCES;
+            if(down_trylock(&(Buffer_Tool.SemBuf))!=0){
+                return -EWOULDBLOCK;
+            }
+            if(Le_buffer.InIdx==Le_buffer.OutIdx){
+                if(Le_buffer.BufFull){
+                    size=Le_buffer.BufSize;
+                }
+                else{
+                   size=0;
+                }
+            }
+            else{
+                size=SIZE(Le_buffer.InIdx,Le_buffer.OutIdx,Le_buffer.BufSize);
+            }
+            if(arg<size){
+                up(&(Buffer_Tool.SemBuf));
+                return -ENOTTY;
+            }
+
+            Buffer_temp=kmalloc(sizeof(unsigned short)*arg,GFP_KERNEL);
+            for(i=0;i<size;i++){
+                Buffer_temp[i]=Le_buffer.Buffer[(Le_buffer.OutIdx +i)%(Le_buffer.BufSize)];
+            }
             kfree(Le_buffer.Buffer);
-            Le_buffer.Buffer=kmalloc(sizeof(unsigned short)*arg,GFP_KERNEL);
+            Le_buffer.Buffer=Buffer_temp;
+            Le_buffer.OutIdx=0;
+            if(size==arg){
+                Le_buffer.InIdx=0;
+                Le_buffer.BufFull=1;
+                Le_buffer.BufEmpty=0;
+            } else{
+                Le_buffer.InIdx=size;
+            }
             Le_buffer.BufSize=arg;
             up(&(Buffer_Tool.SemBuf));
             return 0;
